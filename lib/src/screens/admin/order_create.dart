@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/order.dart';
+import '../core/contants.dart';
 import 'orders_list.dart';
 
 class OrderCreateScreen extends ConsumerStatefulWidget {
@@ -26,7 +27,10 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     final api = ref.watch(apiServiceProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create Order')),
+      appBar: AppBar(
+      backgroundColor: Colors.indigo,
+      title:  Text('Créer Consigne', style: kPrimaryBarStyle),
+    ),
       body: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Form(
@@ -35,29 +39,29 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             children: [
               TextFormField(
                 controller: _phoneController,
-                decoration: const InputDecoration(labelText: 'Customer Phone'),
+                decoration: const InputDecoration(labelText: 'Numero Client'),
                 keyboardType: TextInputType.phone,
-                validator: (v) => v == null || v.isEmpty ? 'Phone required' : null,
+                validator: (v) => v == null || v.isEmpty ? 'Numero du client requis' : null,
               ),
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(labelText: 'Customer Name'),
+                decoration: const InputDecoration(labelText: 'Nom Client'),
               ),
               TextFormField(
                 controller: _addressController,
-                decoration: const InputDecoration(labelText: 'Address'),
-                validator: (v) => v == null || v.isEmpty ? 'Address required' : null,
+                decoration: const InputDecoration(labelText: 'Adresse Client'),
+                validator: (v) => v == null || v.isEmpty ? 'Addresse requise' : null,
               ),
               TextFormField(
                 controller: _amountController,
-                decoration: const InputDecoration(labelText: 'Amount (XAF)'),
+                decoration: const InputDecoration(labelText: 'Montant à percevoir (XAF)'),
                 keyboardType: TextInputType.number,
-                validator: (v) => v == null || v.isEmpty ? 'Amount required' : null,
+                validator: (v) => v == null || v.isEmpty ? 'Le Montant est requis ' : null,
               ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 icon: const Icon(Icons.add),
-                label: const Text('Add Item'),
+                label: const Text('Ajout Article'),
                 onPressed: () async {
                   final item = await _showAddItemDialog(context);
                   if (item != null) {
@@ -100,7 +104,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                     if (mounted) setState(() => _loading = false);
                   }
                 },
-                child: const Text('Submit'),
+                child: const Text('Soumettre'),
               ),
             ],
           ),
@@ -116,17 +120,17 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     return showDialog<OrderItem>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Add Item'),
+        title: const Text('Ajouter Article'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: brandCtrl, decoration: const InputDecoration(labelText: 'Brand')),
-            TextField(controller: capCtrl, decoration: const InputDecoration(labelText: 'Capacity')),
-            TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: TextInputType.number),
+            TextField(controller: brandCtrl, decoration: const InputDecoration(labelText: 'Marque')),
+            TextField(controller: capCtrl, decoration: const InputDecoration(labelText: 'Capacité')),
+            TextField(controller: qtyCtrl, decoration: const InputDecoration(labelText: 'Quantité'), keyboardType: TextInputType.number),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')),
           ElevatedButton(
             onPressed: () {
               final qty = int.tryParse(qtyCtrl.text) ?? 1;
@@ -137,7 +141,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                 quantity: qty,
               ));
             },
-            child: const Text('Add'),
+            child: const Text('Ajouter'),
           ),
         ],
       ),
