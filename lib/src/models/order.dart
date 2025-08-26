@@ -26,6 +26,31 @@ class OrderItem {
   };
 }
 
+class OrderItemCollection {
+  final List<OrderItem> member;
+  final int totalItems;
+  final Map<String, dynamic> view;
+  final Map<String, dynamic> search;
+
+  OrderItemCollection({
+    required this.member,
+    required this.totalItems,
+    required this.view,
+    required this.search,
+  });
+
+  factory OrderItemCollection.fromJson(Map<String, dynamic> json) {
+    return OrderItemCollection(
+      member: (json['member'] as List<dynamic>?)
+          ?.map((item) => OrderItem.fromJson(item))
+          .toList() ?? [],
+      totalItems: json['totalItems'] ?? 0,
+      view: json['view'] ?? {},
+      search: json['search'] ?? {},
+    );
+  }
+}
+
 enum OrderStatus {
   AWAITING_ASSIGNMENT,
   ASSIGNED,
@@ -73,7 +98,7 @@ class Order {
   final String customerPhone;
   final String? customerName;
   final List<OrderItem> items;
-  final double amount;
+  final String amount;
   final String address;
   final OrderStatus status;
   final String? assignedDriver;
@@ -101,7 +126,7 @@ class Order {
       items: (json['items'] as List<dynamic>?)
           ?.map((item) => OrderItem.fromJson(item))
           .toList() ?? [],
-      amount: double.tryParse(json['amount'] ?? '0') ?? 0.0,
+      amount: json['amount'] ?? '0.0',
       address: json['address'] ?? '',
       status: OrderStatusExtension.fromString(json['status'] ?? 'AWAITING_ASSIGNMENT'),
       assignedDriver: json['assignedDriver'],
@@ -114,7 +139,7 @@ class Order {
     'customerPhone': customerPhone,
     'customerName': customerName,
     'items': items.map((item) => item.toJson()).toList(),
-    'amount': amount.toStringAsFixed(2),
+    'amount': amount,
     'address': address,
     'status': status.value,
   };

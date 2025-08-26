@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../models/order.dart';
 import '../../services/api_service.dart';
+import '../core/network_aware_wrapper.dart';
 import 'map_tracking.dart';
 // Add these new imports
 import '../core/reports_screen.dart';
@@ -364,27 +365,30 @@ class _DriverHomeContentState extends ConsumerState<DriverHomeContent> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _orders.isEmpty
-          ? const Center(child: Text('No assigned deliveries'))
-          : ListView.builder(
-        itemCount: _orders.length,
-        itemBuilder: (context, index) {
-          final o = _orders[index];
-          return Card(
-            child: ListTile(
-              title: Text(o.customerName ?? 'Unknown'),
-              subtitle: Text('${o.address}\nAmount: ${o.amount} XAF'),
-              isThreeLine: true,
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => DriverMapTracking(order: o)),
-                );
-              },
-            ),
-          );
-        },
-      ),
+          ? const Center(child: Text('Aucune Consigne Assignée'))
+          : NetworkAwareWrapper(
+        showFullScreenMessage: true,
+            child: ListView.builder(
+                    itemCount: _orders.length,
+                    itemBuilder: (context, index) {
+            final o = _orders[index];
+            return Card(
+              child: ListTile(
+                title: Text(o.customerName ?? 'Unknown'),
+                subtitle: Text('${o.address}\nAmount: ${o.amount} XAF'),
+                isThreeLine: true,
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => DriverMapTracking(order: o)),
+                  );
+                },
+              ),
+            );
+                    },
+                  ),
+          ),
     );
   }
 }

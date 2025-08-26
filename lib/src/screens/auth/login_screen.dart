@@ -8,6 +8,8 @@ import '../../../routes.dart';
 import '../../models/api_response.dart';
 import '../../models/users.dart';
 import '../../services/api_service.dart';
+import '../../services/mercure_service.dart';
+import '../core/network_aware_wrapper.dart';
 
 final apiServiceProvider = Provider<ApiService>((ref) {
   return ApiService(); // Replace with your base URL
@@ -97,9 +99,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           _passwordController.text.trim(),
         );
 
+        final mercureService = ref.read(mercureServiceProvider);
+        // Determine topics based on user role
+        List<String> topics = ['mongaz:system:all', 'mongaz:system:user:${user.id}'];
+        if (user.roles.contains('ROLE_ADMIN')) {
+          topics.add('mongaz:system:role:ROLE_ADMIN');
+        } else if (user.roles.contains('ROLE_DRIVER')) {
+          topics.add('mongaz:system:role:ROLE_DRIVER');
+        }
+        await mercureService.connect(topics);
+
         // Hide the loading dialog
         Navigator.of(context).pop();
-
         if (user.roles.contains('ROLE_ADMIN')) {
           Navigator.pushReplacementNamed(context, Routes.adminOrders);
         } else if (user.roles.contains('ROLE_DRIVER')) {
@@ -115,6 +126,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           Toast.show("Oops! Identifiants incorrect fournis (${e.response?.data?["message"]})", duration: Toast.lengthLong,
               gravity: Toast.top);
         }
+
+      } catch (e){
+        // Hide the loading dialog on error
+        Navigator.of(context).pop();
+        Toast.show("Oops! something went wrong.. details: (${e.toString()})", duration: Toast.lengthLong,
+            gravity: Toast.top);
 
       } finally {
         setState((){
@@ -285,53 +302,56 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           ? _buildResetPasswordFAB(generalColor)
           : _buildLoginFAB(generalColor),
       floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(0),
-            child: FadeTransition(
-              opacity: _fadeAnimation,
-              child: SlideTransition(
-                position: _slideAnimation,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: double.infinity,
-                      height: logoBoxHeight,
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            top: logoBoxHeight * 0.3,
-                            left: (screenWidth / 2) - (logoWidth / 2) - 10,
-                            child: Center(
-                              child: Container(
-                                alignment: Alignment.center,
-                                width: logoWidth,
-                                child: Image(
-                                  image: const AssetImage('assets/images/logo.png'),
-                                  fit: BoxFit.cover,
+      body: NetworkAwareWrapper(
+        showFullScreenMessage: true,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(0),
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: SlideTransition(
+                  position: _slideAnimation,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      SizedBox(
+                        width: double.infinity,
+                        height: logoBoxHeight,
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              top: logoBoxHeight * 0.3,
+                              left: (screenWidth / 2) - (logoWidth / 2) - 10,
+                              child: Center(
+                                child: Container(
+                                  alignment: Alignment.center,
+                                  width: logoWidth,
+                                  child: Image(
+                                    image: const AssetImage('assets/images/logo.png'),
+                                    fit: BoxFit.cover,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
-                          if (_showResetPassword)
-                            Positioned(
-                              top: 0,
-                              left: 0,
-                              child: IconButton(
-                                icon: const Icon(Icons.arrow_back),
-                                onPressed: _backToLogin,
+                            if (_showResetPassword)
+                              Positioned(
+                                top: 0,
+                                left: 0,
+                                child: IconButton(
+                                  icon: const Icon(Icons.arrow_back),
+                                  onPressed: _backToLogin,
+                                ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    _showResetPassword
-                        ? _buildResetPasswordForm(generalColor)
-                        : _buildLoginForm(generalColor),
-                  ],
+                      _showResetPassword
+                          ? _buildResetPasswordForm(generalColor)
+                          : _buildLoginForm(generalColor),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -28,6 +28,11 @@ dependencies:
   logger: ^2.2.0
   toast: ^0.3.0
   intl_phone_number_input: ^0.7.4
+  connectivity_plus: ^6.1.5
+  provider: ^6.1.5+1
+  dart_jsonwebtoken: ^3.2.0
+  shared_preferences: ^2.5.3
+  mapbox_maps_flutter: ^2.10.0
 
 dev_dependencies:
   flutter_launcher_icons: "^0.14.4"

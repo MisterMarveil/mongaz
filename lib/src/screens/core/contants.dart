@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+String kSSEUrl = 'http://162.0.224.101:9000/.well-known/mercure';
+String kSSESecretKey = '78c6e0cf57e0182e2ef6270175529c59d9924efb74ae1c2c92ebb502df355967';
+String kSSEIssuer = 'mongaz-app';
+
 final kPrincipalTextStyle = TextStyle(
     fontSize: 14,
     fontFamily: 'Sora',

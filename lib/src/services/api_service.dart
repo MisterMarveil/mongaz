@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_client_sse/flutter_client_sse.dart';
 import 'package:flutter_client_sse/constants/sse_request_type_enum.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:toast/toast.dart';
 
@@ -18,6 +19,10 @@ import '../models/point_of_sale.dart';
 import '../models/system.dart';
 import '../models/users.dart';
 import '../models/api_response.dart';
+
+final apiServiceProvider = Provider<ApiService>((ref) {
+  return ApiService(); // Replace with your base URL
+});
 
 class ApiService {
   final Dio _dio;
@@ -348,6 +353,83 @@ class ApiService {
     }
   }
 
+  // Order Items
+  Future<List<OrderItem>> getOrderItems({int page = 1}) async {
+    try {
+      final response = await _dio.get('/api/order_items', queryParameters: {
+        'page': page,
+      });
+
+      // Handle both collection response and simple array response
+      if (response.data is Map && response.data.containsKey('member')) {
+        final collection = OrderItemCollection.fromJson(response.data);
+        return collection.member;
+      } else if (response.data is List) {
+        return (response.data as List).map((e) => OrderItem.fromJson(e)).toList();
+      }
+
+      return [];
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
+  }
+
+
+  Future<OrderItem> createOrderItem(OrderItem item) async {
+    print("about to create orderItem: ${item.toString()}");
+    try {
+      final response = await _dio.post('/api/order_items', data: item.toJson());
+      return OrderItem.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      } else if (e.error is ConstraintViolationList) {
+        throw e.error as ConstraintViolationList;
+      }
+      rethrow;
+    }
+  }
+
+  Future<OrderItem> getOrderItem(String id) async {
+    try {
+      final response = await _dio.get('/api/order_items/$id');
+      return OrderItem.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> deleteOrderItem(String id) async {
+    try {
+      await _dio.delete('/api/order_items/$id');
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
+  }
+
+  Future<OrderItem> updateOrderItem(String id, Map<String, dynamic> data) async {
+    try {
+      final response = await _dio.patch('/api/order_items/$id', data: data);
+      return OrderItem.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      } else if (e.error is ConstraintViolationList) {
+        throw e.error as ConstraintViolationList;
+      }
+      rethrow;
+    }
+  }
+
   Future<bool> _refreshToken() async {
     final password = await _storage.read(key: 'password');
     final phone = await _storage.read(key: 'user_phone');
@@ -409,5 +491,93 @@ class ApiService {
     );
 
     return _subscription;
+  }
+
+  Future<void> notify({
+    required String message,
+    required String event,
+    String role = 'ROLE_DRIVER',
+    List<String>? userIds,
+    Map<String, dynamic>? extra,
+  }) async {
+    try {
+      final data = {
+        'message': message,
+        'event': event,
+        'role': role,
+        if (userIds != null) 'userIds': userIds,
+        if (extra != null) 'extra': extra,
+      };
+
+      await _dio.post('/api/system/notify', data: data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      } else if (e.error is ConstraintViolationList) {
+        throw e.error as ConstraintViolationList;
+      }
+      rethrow;
+    }
+  }
+
+  Future<UserCollection> getUsers({
+    int page = 1,
+    String? phone,
+    String? role,
+  }) async {
+    try {
+      final Map<String, dynamic> queryParams = {'page': page};
+
+      if (phone != null && phone.isNotEmpty) {
+        queryParams['phone'] = phone;
+      }
+
+      if (role != null && role.isNotEmpty) {
+        queryParams['role'] = role;
+      }
+
+      final response = await _dio.get(
+        '/api/users',
+        queryParameters: queryParams,
+      );
+
+      return UserCollection.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
+  }
+
+  Future<PointOfSaleCollection> getPointsOfSales({int page = 1}) async {
+    try {
+      final response = await _dio.get('/api/point_of_sales', queryParameters: {
+        'page': page,
+      });
+
+      return PointOfSaleCollection.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
+  }
+
+  // Add to ApiService class
+  Future<Map<String, String>> getEnvVars(List<String> names) async {
+    try {
+      final response = await _dio.get(
+        '/api/system/env-vars',
+        queryParameters: {'names[]': names},
+      );
+      return Map<String, String>.from(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
   }
 }
