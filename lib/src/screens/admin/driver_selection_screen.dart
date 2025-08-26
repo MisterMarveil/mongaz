@@ -1,5 +1,12 @@
 // driver_selection_screen.dart
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_client_sse/flutter_client_sse.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:latlong2/latlong.dart' as latlong;
@@ -14,7 +21,7 @@ import '../auth/login_screen.dart' hide apiServiceProvider;
 final driversProvider = FutureProvider.autoDispose<List<User>>((ref) async {
   final api = ref.watch(apiServiceProvider);
   try {
-    final userCollection = (await api.getUsers(role: 'ROLE_DRIVER'));
+    final userCollection = await api.getUsers(role: 'ROLE_DRIVER');
     return userCollection.member;
   } catch (e) {
     debugPrint('Error fetching drivers: $e');
@@ -26,45 +33,18 @@ final driversProvider = FutureProvider.autoDispose<List<User>>((ref) async {
 final pointsOfSaleProvider = FutureProvider.autoDispose<List<PointOfSale>>((ref) async {
   final api = ref.watch(apiServiceProvider);
   try {
-    final pointOfSale = await api.getPointsOfSales();
-    return Future.any(pointOfSale.member as Iterable<Future<List<PointOfSale>>>);
+    final pointOfSaleCollection = await api.getPointsOfSales();
+    return pointOfSaleCollection.member;
   } catch (e) {
     debugPrint('Error fetching points of sale: $e');
     return [];
   }
 });
 
-// Add to the top of the file
-final driverLocationsProvider = StreamProvider.autoDispose<Map<String, dynamic>>((ref) {
-  final mercureService = ref.watch(mercureServiceProvider);
-  return mercureService.getTopicStream('drivers/locations');
+// Provider for driver locations
+final driverLocationsProvider = StateNotifierProvider<DriverLocationsNotifier, Map<String, latlong.LatLng>>((ref) {
+  return DriverLocationsNotifier();
 });
-
-void _subscribeToDriverLocations() {
-  final driverLocationsStream = ref.watch(driverLocationsProvider);
-
-  driverLocationsStream.when(
-    data: (data) {
-      try {
-        final driverId = data['driverId'];
-        final lat = data['lat'];
-        final lng = data['lng'];
-
-        if (driverId != null && lat != null && lng != null) {
-          ref.read(driverLocationsProvider.notifier).updateLocation(
-            driverId,
-            latlong.LatLng(lat, lng),
-          );
-        }
-      } catch (e) {
-        debugPrint('Error parsing driver location: $e');
-      }
-    },
-    loading: () {},
-    error: (error, stack) => debugPrint('Error in driver locations stream: $error'),
-  );
-}
-
 
 class DriverLocationsNotifier extends StateNotifier<Map<String, latlong.LatLng>> {
   DriverLocationsNotifier() : super({});
@@ -97,7 +77,8 @@ class DriverSelectionScreen extends ConsumerStatefulWidget {
 }
 
 class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
-  late final MapboxMap? mapController;
+  MapboxMap? mapboxMap;
+  PointAnnotationManager? pointAnnotationManager;
   final Set<String> _selectedDrivers = {};
   final _searchController = TextEditingController();
   String _searchQuery = '';
@@ -105,6 +86,16 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
   PointOfSale? _selectedPointOfSale;
   double _maxDistance = 10.0; // Default 10 km radius
   List<User> _recommendedDrivers = [];
+  StreamSubscription<SSEModel>? _locationSubscription;
+  final Map<String, PointAnnotation> _driverAnnotations = {};
+  PointAnnotation? _pointOfSaleAnnotation;
+  Uint8List? _driverMoveMarkerImage;
+  Uint8List? _driverMoveCheckedMarkerImage;
+  Uint8List? _driverStopMarkerImage;
+  Uint8List? _driverStopCheckedMarkerImage;
+  Uint8List? _posMarkerImage;
+  Uint8List? _posMarkerCheckedImage;
+
 
   @override
   void initState() {
@@ -113,26 +104,62 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
       _selectedDrivers.addAll(widget.initiallySelectedDrivers!);
     }
 
+    // Load marker images
+    _loadMarkerImages();
+
     // Subscribe to driver location updates
     _subscribeToDriverLocations();
+  }
+
+  Future<void> _loadMarkerImages() async {
+    try {
+      // Load driver marker image
+      final driverMoveBytes = await rootBundle.load('assets/images/driver-marker-move.png');
+      _driverMoveMarkerImage = driverMoveBytes.buffer.asUint8List();
+
+      final driverMoveCheckedBytes = await rootBundle.load('assets/images/driver-marker-move-checked.png');
+      _driverMoveCheckedMarkerImage = driverMoveCheckedBytes.buffer.asUint8List();
+
+      final driverStopBytes = await rootBundle.load('assets/images/driver-marker-stop.png');
+      _driverStopMarkerImage = driverStopBytes.buffer.asUint8List();
+
+      final driverStopCheckedBytes = await rootBundle.load('assets/images/driver-marker-stop-checked.png');
+      _driverStopCheckedMarkerImage = driverStopCheckedBytes.buffer.asUint8List();
+
+      final posBytes = await rootBundle.load('assets/images/pos-marker.png');
+      _posMarkerImage = driverMoveCheckedBytes.buffer.asUint8List();
+
+      final posCheckedBytes = await rootBundle.load('assets/images/pos-marker-checked.png');
+      _posMarkerCheckedImage = posCheckedBytes.buffer.asUint8List();
+
+    } catch (e) {
+      debugPrint('Error loading marker images: $e');
+    }
   }
 
   void _subscribeToDriverLocations() {
     final mercureService = ref.read(mercureServiceProvider);
 
-    // Subscribe to driver location updates topic
-    mercureService.subscribe(['drivers/locations'], (event) {
+    // Subscribe to driver location updates
+    mercureService.addTopics(['drivers/locations']);
+
+    // Listen to driver location stream
+    final locationStream = mercureService.getTopicStream('drivers/locations');
+    _locationSubscription = locationStream.listen((event) {
       try {
         final data = json.decode(event.data!);
-        final driverId = data['driverId'];
-        final lat = data['lat'];
-        final lng = data['lng'];
+        final driverId = data['driverId'] as String?;
+        final lat = data['lat'] as double?;
+        final lng = data['lng'] as double?;
 
         if (driverId != null && lat != null && lng != null) {
-          ref.read(driverLocationsProvider.notifier).updateLocation(
-            driverId,
-            LatLng(lat: lat, lng: lng),
-          );
+          final location = latlong.LatLng(lat, lng);
+          ref.read(driverLocationsProvider.notifier).updateLocation(driverId, location);
+
+          // Update map marker if map is active
+          if (mapboxMap != null && pointAnnotationManager != null) {
+            _updateDriverMarker(driverId, location);
+          }
         }
       } catch (e) {
         debugPrint('Error parsing driver location: $e');
@@ -140,40 +167,175 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
     });
   }
 
+  void _onMapCreated(MapboxMap controller) async {
+    mapboxMap = controller;
+
+    // Create the PointAnnotationManager
+    pointAnnotationManager = await mapboxMap?.annotations.createPointAnnotationManager();
+
+    // If we have a selected point of sale, update the map
+    if (_selectedPointOfSale != null) {
+      final driversAsync = ref.read(driversProvider);
+      final driverLocations = ref.read(driverLocationsProvider);
+
+      driversAsync.whenData((drivers) {
+        _findDriversNearPointOfSale(
+          drivers,
+          driverLocations,
+          _selectedPointOfSale!,
+          _maxDistance,
+        );
+      });
+    }
+  }
+
+  Future<void> _updateDriverMarker(String driverId, latlong.LatLng location) async {
+    final annotation = _driverAnnotations[driverId];
+    if (annotation != null && pointAnnotationManager != null) {
+      // To update the annotation position:
+      annotation.geometry = Point(
+        coordinates: Position(location.longitude, location.latitude),
+      );
+      annotation.image = _driverStopMarkerImage;
+
+      // Then update it through the manager
+      await pointAnnotationManager!.update(annotation);
+    } else {
+      // Create new annotation
+      _createDriverMarker(driverId, location);
+    }
+  }
+
+  void _createDriverMarker(String driverId, latlong.LatLng location) {
+    if (pointAnnotationManager == null || _driverStopMarkerImage == null) return;
+
+    final isSelected = _selectedDrivers.contains(driverId);
+    final imageName = isSelected ? 'selected-driver-marker' : 'driver-marker';
+
+    final options = PointAnnotationOptions(
+      geometry: Point(
+        coordinates: Position(location.longitude, location.latitude),
+      ),
+      iconImage: imageName,
+      iconSize: 1.5,
+      textField: driverId.substring(0, 3), // Show first 3 chars of driver ID
+      textOffset: [0, 1.5],
+    );
+
+    pointAnnotationManager!.create(options).then((annotation) {
+      _driverAnnotations[driverId] = annotation;
+    });
+  }
+
+  void _createPointOfSaleMarker(PointOfSale pointOfSale) {
+    if (pointAnnotationManager == null || _posMarkerImage == null) return;
+
+    // Remove existing point of sale annotation if any
+    if (_pointOfSaleAnnotation != null) {
+      pointAnnotationManager!.delete(_pointOfSaleAnnotation!);
+    }
+
+    final options = PointAnnotationOptions(
+      geometry: Point(
+        coordinates: Position(pointOfSale.lon as num, pointOfSale.lat as num),
+      ),
+      iconImage: 'pos-marker',
+      iconSize: 2.0,
+      textField: pointOfSale.name,
+      textOffset: [0, 2.5],
+    );
+
+    pointAnnotationManager!.create(options).then((annotation) {
+      _pointOfSaleAnnotation = annotation;
+    });
+  }
+
+  void _fitToBounds(List<latlong.LatLng> points) {
+    if (points.isEmpty || mapboxMap == null) return;
+
+    double minLat = points.first.latitude;
+    double maxLat = points.first.latitude;
+    double minLng = points.first.longitude;
+    double maxLng = points.first.longitude;
+
+    for (final point in points) {
+      minLat = min(minLat, point.latitude);
+      maxLat = max(maxLat, point.latitude);
+      minLng = min(minLng, point.longitude);
+      maxLng = max(maxLng, point.longitude);
+    }
+
+    /*
+    final bounds = LatLngBounds(latlong.LatLng(minLat, minLng), latlong.LatLng(maxLat, maxLng));
+
+    mapboxMap?.cameraOptions=  !.camera.easeTo(
+      CameraOptions(bounds: bounds, padding: const EdgeInsets.all(50)),
+    );*/
+  }
+
   // Calculate distance between two coordinates using Haversine formula
   double _calculateDistance(latlong.LatLng pos1, latlong.LatLng pos2) {
-    final Distance distance = Distance();
-    return distance.as(LengthUnit.Kilometer, pos1, pos2);
+    const latlong.Distance distance = latlong.Distance();
+    return distance.as(latlong.LengthUnit.Kilometer, pos1, pos2);
   }
 
   // Find drivers within radius of point of sale
   void _findDriversNearPointOfSale(
       List<User> drivers,
-      Map<String, LatLng> driverLocations,
+      Map<String, latlong.LatLng> driverLocations,
       PointOfSale pointOfSale,
       double maxDistance,
       ) {
     final posLocation = latlong.LatLng(
-      pointOfSale.latitude,
-      pointOfSale.longitude,
+      pointOfSale.lat as double,
+      pointOfSale.lon as double,
     );
 
     final nearbyDrivers = drivers.where((driver) {
       final driverLocation = driverLocations[driver.id];
       if (driverLocation == null) return false;
 
-      final driverLatLng = latlong.LatLng(
-        driverLocation.lat,
-        driverLocation.lng,
-      );
-
-      final distance = _calculateDistance(posLocation, driverLatLng);
+      final distance = _calculateDistance(posLocation, driverLocation);
       return distance <= maxDistance;
     }).toList();
 
     setState(() {
       _recommendedDrivers = nearbyDrivers;
     });
+
+    // Update map view
+    if (mapboxMap != null && pointAnnotationManager != null) {
+      _updateMapWithDrivers(nearbyDrivers, driverLocations, pointOfSale);
+    }
+  }
+
+  void _updateMapWithDrivers(
+      List<User> drivers,
+      Map<String, latlong.LatLng> driverLocations,
+      PointOfSale pointOfSale,
+      ) {
+    // Clear existing annotations
+    pointAnnotationManager?.deleteAll();
+    _driverAnnotations.clear();
+    _pointOfSaleAnnotation = null;
+
+    // Add point of sale marker
+    _createPointOfSaleMarker(pointOfSale);
+
+    // Add driver markers
+    for (final driver in drivers) {
+      final location = driverLocations[driver.id];
+      if (location != null) {
+        _createDriverMarker(driver.id, location);
+      }
+    }
+
+    // Fit map to show all markers
+    final allPoints = [
+      latlong.LatLng(pointOfSale.lat as double, pointOfSale.lon as double),
+      ...driverLocations.values,
+    ];
+    _fitToBounds(allPoints);
   }
 
   // Auto-select drivers based on proximity
@@ -183,12 +345,38 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
       for (int i = 0; i < count && i < drivers.length; i++) {
         _selectedDrivers.add(drivers[i].id);
       }
+
+      // Update markers to show selection state
+      _updateMarkerSelectionStates();
     });
+  }
+
+  void _updateMarkerSelectionStates() {
+    if (pointAnnotationManager == null) return;
+
+    for (final entry in _driverAnnotations.entries) {
+      final driverId = entry.key;
+      final annotation = entry.value;
+      final isSelected = _selectedDrivers.contains(driverId);
+      final imageName = isSelected ? 'selected-driver-marker' : 'driver-marker';
+
+      annotation.image = isSelected ? _driverStopCheckedMarkerImage : _driverStopMarkerImage;
+      pointAnnotationManager!.update(annotation);
+    }
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _locationSubscription?.cancel();
+
+    // Unsubscribe from driver locations topic
+    final mercureService = ref.read(mercureServiceProvider);
+    mercureService.removeTopics(['drivers/locations']);
+
+    // Clean up annotation manager
+    pointAnnotationManager?.deleteAll();
+
     super.dispose();
   }
 
@@ -367,37 +555,20 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
     );
   }
 
-  Widget _buildMapView(List<User> drivers, Map<String, LatLng> driverLocations) {
-    // This would be the Mapbox map implementation with markers for:
-    // 1. Selected point of sale (if any)
-    // 2. Driver locations
-    // 3. Customer location (if available)
-
-    return Stack(
-      children: [
-        // Mapbox map would go here
-        Container(
-          color: Colors.grey[200],
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Map View', style: TextStyle(fontSize: 18)),
-                if (_selectedPointOfSale != null)
-                  Text('Point of Sale: ${_selectedPointOfSale!.name}'),
-                Text('${drivers.length} drivers available'),
-                if (_recommendedDrivers.isNotEmpty)
-                  Text('${_recommendedDrivers.length} drivers within $_maxDistance km'),
-              ],
-            ),
-          ),
-        ),
-        // Driver markers would be added here based on driverLocations
-      ],
+  Widget _buildMapView(List<User> drivers, Map<String, latlong.LatLng> driverLocations) {
+    final camera = CameraOptions(
+        center: Point(coordinates: Position(-98.0, 39.5)),
+        zoom: 2,
+        bearing: 0,
+        pitch: 0);
+    return MapWidget(
+      styleUri: MapboxStyles.MAPBOX_STREETS,
+      onMapCreated: _onMapCreated,
+      cameraOptions: camera,
     );
   }
 
-  Widget _buildListView(List<User> drivers, Map<String, LatLng> driverLocations) {
+  Widget _buildListView(List<User> drivers, Map<String, latlong.LatLng> driverLocations) {
     return ListView.builder(
       itemCount: drivers.length,
       itemBuilder: (context, index) {
@@ -432,6 +603,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
                   } else {
                     _selectedDrivers.remove(driver.id);
                   }
+                  _updateMarkerSelectionStates();
                 });
               },
             ),
@@ -442,6 +614,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
                 } else {
                   _selectedDrivers.add(driver.id);
                 }
+                _updateMarkerSelectionStates();
               });
             },
           ),
@@ -450,10 +623,9 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
     );
   }
 
-  Widget _buildDistanceInfo(LatLng driverLocation, PointOfSale pointOfSale) {
-    final driverLatLng = latlong.LatLng(driverLocation.lat, driverLocation.lng);
-    final posLatLng = latlong.LatLng(pointOfSale.latitude, pointOfSale.longitude);
-    final distance = _calculateDistance(driverLatLng, posLatLng);
+  Widget _buildDistanceInfo(latlong.LatLng driverLocation, PointOfSale pointOfSale) {
+    final posLatLng = latlong.LatLng(pointOfSale.lat as double, pointOfSale.lon as double);
+    final distance = _calculateDistance(driverLocation, posLatLng);
 
     return Text('Distance: ${distance.toStringAsFixed(1)} km from ${pointOfSale.name}');
   }
@@ -493,105 +665,5 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
         message: 'New order assigned to you',
       );
     }
-  }
-}
-
-// Add these methods to ApiService
-Future<List<PointOfSale>> getPointsOfSale() async {
-  try {
-    final response = await _dio.get('/api/point_of_sales');
-
-    // Handle both collection response and simple array response
-    if (response.data is Map && response.data.containsKey('member')) {
-      final collection = PointOfSaleCollection.fromJson(response.data);
-      return collection.member;
-    } else if (response.data is List) {
-      return (response.data as List).map((e) => PointOfSale.fromJson(e)).toList();
-    }
-
-    return [];
-  } on DioException catch (e) {
-    if (e.error is ApiError) {
-      throw e.error as ApiError;
-    }
-    rethrow;
-  }
-}
-
-Future<List<User>> getUsers({String? role}) async {
-  try {
-    final response = await _dio.get('/api/users', queryParameters: {
-      if (role != null) 'role': role,
-    });
-
-    // Handle both collection response and simple array response
-    if (response.data is Map && response.data.containsKey('member')) {
-      final collection = UserCollection.fromJson(response.data);
-      return collection.member;
-    } else if (response.data is List) {
-      return (response.data as List).map((e) => User.fromJson(e)).toList();
-    }
-
-    return [];
-  } on DioException catch (e) {
-    if (e.error is ApiError) {
-      throw e.error as ApiError;
-    }
-    rethrow;
-  }
-}
-
-// Add PointOfSaleCollection model
-class PointOfSaleCollection {
-  final List<PointOfSale> member;
-
-  PointOfSaleCollection({required this.member});
-
-  factory PointOfSaleCollection.fromJson(Map<String, dynamic> json) {
-    return PointOfSaleCollection(
-      member: (json['member'] as List).map((e) => PointOfSale.fromJson(e)).toList(),
-    );
-  }
-}
-
-// Add UserCollection model
-class UserCollection {
-  final List<User> member;
-
-  UserCollection({required this.member});
-
-  factory UserCollection.fromJson(Map<String, dynamic> json) {
-    return UserCollection(
-      member: (json['member'] as List).map((e) => User.fromJson(e)).toList(),
-    );
-  }
-}
-
-// Enhance PointOfSale model to include coordinates
-class PointOfSale {
-  final String id;
-  final String name;
-  final String address;
-  final double latitude;
-  final double longitude;
-
-  PointOfSale({
-    required this.id,
-    required this.name,
-    required this.address,
-    required this.latitude,
-    required this.longitude,
-  });
-
-  factory PointOfSale.fromJson(Map<String, dynamic> json) {
-    // You'll need to parse the coordinates from your API response
-    // This is a placeholder implementation
-    return PointOfSale(
-      id: json['id'],
-      name: json['name'],
-      address: json['address'],
-      latitude: json['latitude'] ?? 0.0,
-      longitude: json['longitude'] ?? 0.0,
-    );
   }
 }

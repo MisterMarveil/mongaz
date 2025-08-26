@@ -2,12 +2,16 @@
 class PointOfSale {
   final String id;
   final String name;
-  final String address;
+  final String? address;
+  final String lat;
+  final String lon;
 
   PointOfSale({
     required this.id,
     required this.name,
-    required this.address,
+    required this.lat,
+    required this.lon,
+    this.address,
   });
 
   factory PointOfSale.fromJson(Map<String, dynamic> json) {
@@ -15,13 +19,18 @@ class PointOfSale {
       id: json['id'] ?? '',
       name: json['name'] ?? '',
       address: json['address'] ?? '',
+      lat: json['lat'],
+      lon: json['lon']
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'name': name,
       'address': address,
+      'lat': lat,
+      'lon': lon
     };
   }
 }

@@ -9,6 +9,7 @@ import '../../models/api_response.dart';
 import '../../models/users.dart';
 import '../../services/api_service.dart';
 import '../../services/mercure_service.dart';
+import '../core/contants.dart';
 import '../core/network_aware_wrapper.dart';
 
 final apiServiceProvider = Provider<ApiService>((ref) {
@@ -101,11 +102,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
 
         final mercureService = ref.read(mercureServiceProvider);
         // Determine topics based on user role
-        List<String> topics = ['mongaz:system:all', 'mongaz:system:user:${user.id}'];
+        List<String> topics = [kSSEGeneralNotificationTopic, '$kSSESpecificUserNotificationTopic${user.id}'];
         if (user.roles.contains('ROLE_ADMIN')) {
-          topics.add('mongaz:system:role:ROLE_ADMIN');
+          topics.add(kSSEAdminRoleTopic);
         } else if (user.roles.contains('ROLE_DRIVER')) {
-          topics.add('mongaz:system:role:ROLE_DRIVER');
+          topics.add(kSSEDriverRoleTopic);
         }
         await mercureService.connect(topics);
 

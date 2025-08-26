@@ -3,6 +3,7 @@ import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:flutter_client_sse/flutter_client_sse.dart';
 import 'package:flutter_client_sse/constants/sse_request_type_enum.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mongaz/src/screens/core/contants.dart';
 import 'api_service.dart';
 
 enum MercureConnectionState {
@@ -16,7 +17,7 @@ final mercureServiceProvider = Provider<MercureService>((ref) {
   final api = ref.watch(apiServiceProvider);
   return MercureService.instance(
     api,
-    issuer: 'mongaz',
+    issuer: kSSEIssuer,
   );
 });
 
