@@ -540,8 +540,55 @@ class ApiService {
         '/api/users',
         queryParameters: queryParams,
       );
+      debugPrint("retrieved users: ${response.toString()}");
 
       return UserCollection.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      }
+      rethrow;
+    }
+  }
+
+  // Add to ApiService class
+  Future<User> createUser(User user) async {
+    try {
+      final response = await _dio.post('/api/users', data: {
+        'phone': user.phone,
+        'name': user.name,
+        'password': 'tempPassword', // You might want to handle this differently
+        'roles': user.roles,
+        'isEnabled': user.isEnabled,
+      });
+      return User.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      } else if (e.error is ConstraintViolationList) {
+        throw e.error as ConstraintViolationList;
+      }
+      rethrow;
+    }
+  }
+
+  Future<User> updateUser(String id, Map<String, dynamic> data) async {
+    try {
+      final response = await _dio.patch('/api/users/$id', data: data);
+      return User.fromJson(response.data);
+    } on DioException catch (e) {
+      if (e.error is ApiError) {
+        throw e.error as ApiError;
+      } else if (e.error is ConstraintViolationList) {
+        throw e.error as ConstraintViolationList;
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> deleteUser(String id) async {
+    try {
+      await _dio.delete('/api/users/$id');
     } on DioException catch (e) {
       if (e.error is ApiError) {
         throw e.error as ApiError;

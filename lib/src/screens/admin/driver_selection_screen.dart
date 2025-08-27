@@ -326,7 +326,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
     for (final driver in drivers) {
       final location = driverLocations[driver.id];
       if (location != null) {
-        _createDriverMarker(driver.id, location);
+        _createDriverMarker(driver.id!, location);
       }
     }
 
@@ -343,7 +343,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
     setState(() {
       _selectedDrivers.clear();
       for (int i = 0; i < count && i < drivers.length; i++) {
-        _selectedDrivers.add(drivers[i].id);
+        _selectedDrivers.add(drivers[i].id!);
       }
 
       // Update markers to show selection state
@@ -402,11 +402,11 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
         children: [
           // Point of Sale selection and distance filter
           Padding(
-            padding: const EdgeInsets.all(8.0),
+            padding: const EdgeInsets.all(0),
             child: Row(
               children: [
                 Expanded(
-                  flex: 2,
+                  flex: 3,
                   child: pointsOfSaleAsync.when(
                     data: (pointsOfSale) => DropdownButtonFormField<PointOfSale>(
                       value: _selectedPointOfSale,
@@ -437,7 +437,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
                     error: (error, stack) => const Text('Error loading POS'),
                   ),
                 ),
-                const SizedBox(width: 10),
+                //const SizedBox(width: 2),
                 Expanded(
                   flex: 2,
                   child: Column(
@@ -599,9 +599,9 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
               onChanged: (value) {
                 setState(() {
                   if (value == true) {
-                    _selectedDrivers.add(driver.id);
+                    _selectedDrivers.add(driver.id!);
                   } else {
-                    _selectedDrivers.remove(driver.id);
+                    _selectedDrivers.remove(driver.id!);
                   }
                   _updateMarkerSelectionStates();
                 });
@@ -612,7 +612,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
                 if (isSelected) {
                   _selectedDrivers.remove(driver.id);
                 } else {
-                  _selectedDrivers.add(driver.id);
+                  _selectedDrivers.add(driver.id!);
                 }
                 _updateMarkerSelectionStates();
               });
@@ -638,7 +638,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
         children: [
           ElevatedButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+            child: const Text('Annuler'),
           ),
           ElevatedButton(
             onPressed: _selectedDrivers.isEmpty
@@ -648,7 +648,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
               _notifyDrivers();
               Navigator.pop(context, _selectedDrivers.toList());
             },
-            child: Text('Assign to ${_selectedDrivers.length} Drivers'),
+            child: Text('Attribuer à ${_selectedDrivers.length} Livreurs'),
           ),
         ],
       ),
@@ -662,7 +662,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
       mercureService.notifyOrderAssignment(
         orderId: widget.order.id,
         driverIds: [driverId],
-        message: 'New order assigned to you',
+        message: 'Nouvelle Consigne disponible',
       );
     }
   }

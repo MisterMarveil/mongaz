@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl_phone_number_input/intl_phone_number_input.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:toast/toast.dart';
 import '../../../routes.dart';
 import '../../models/api_response.dart';
@@ -99,6 +100,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           _phoneNumber,
           _passwordController.text.trim(),
         );
+        final envVars = await api.getEnvVars([
+          'MAPBOX_TOKEN'
+        ]);
+        if(envVars['MAPBOX_TOKEN'] != null) {
+          MapboxOptions.setAccessToken(envVars['MAPBOX_TOKEN']!);
+        }else{
+          debugPrint("failed to retrieve mapbox token. object details: ${envVars.toString()}");
+        }
 
         final mercureService = ref.read(mercureServiceProvider);
         // Determine topics based on user role

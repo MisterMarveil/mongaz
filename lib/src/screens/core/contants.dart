@@ -20,6 +20,7 @@ const Color kSecondaryBarBackgroundColor = Colors.white;
 const Color kSelectedMenuItemColor = Colors.white;
 const Color kUnselectedMenuItemColor = Colors.white70;
 const Color kMenuItemBackgroundColor = Colors.indigoAccent;
+const Color kSecondaryBarActionButtonColor = Colors.indigo;
 
 
 final kPrimaryBarStyle = kPrincipalTextStyle.copyWith(
