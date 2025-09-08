@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl_phone_number_input/intl_phone_number_input.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
+import 'package:mapbox_search/mapbox_search.dart' as MapBoxSearch;
 import 'package:toast/toast.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../../routes.dart';
 import '../../models/api_response.dart';
 import '../../models/users.dart';
@@ -66,6 +68,31 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   void initState() {
     super.initState();
     _setupAnimations();
+    () async {
+      await Permission.location
+          .onDeniedCallback(() {
+          Toast.show("Cette application a besoin de votre localisation pour bien fonctionner");
+          ()async{
+            await Permission.location.request();
+          };
+      })
+          .onGrantedCallback(() {
+        // Your code
+      })
+          .onPermanentlyDeniedCallback(() {
+        // Your code
+      })
+          .onRestrictedCallback(() {
+        // Your code
+      })
+          .onLimitedCallback(() {
+        // Your code
+      })
+          .onProvisionalCallback(() {
+        // Your code
+      })
+          .request();
+    };
   }
 
   @override
@@ -105,6 +132,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
         ]);
         if(envVars['MAPBOX_TOKEN'] != null) {
           MapboxOptions.setAccessToken(envVars['MAPBOX_TOKEN']!);
+          MapBoxSearch.MapBoxSearch.init(envVars['MAPBOX_TOKEN']!);
         }else{
           debugPrint("failed to retrieve mapbox token. object details: ${envVars.toString()}");
         }
@@ -302,6 +330,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
     double logoWidth = 260;
     double logoBoxHeight = screenHeight * 0.3;
     Color generalColor = Colors.indigo;
+
 
     if(_error.isNotEmpty){
       Toast.show(_error, duration: Toast.lengthLong, gravity:  Toast.top);

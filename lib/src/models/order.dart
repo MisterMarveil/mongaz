@@ -100,6 +100,8 @@ class Order {
   final List<OrderItem> items;
   final String amount;
   final String address;
+  final String lat;
+  final String lon;
   final OrderStatus status;
   final String? assignedDriver;
   final String? createdBy;
@@ -112,6 +114,8 @@ class Order {
     required this.items,
     required this.amount,
     required this.address,
+    required this.lat,
+    required this.lon,
     required this.status,
     this.assignedDriver,
     this.createdBy,
@@ -128,6 +132,8 @@ class Order {
           .toList() ?? [],
       amount: json['amount'] ?? '0.0',
       address: json['address'] ?? '',
+      lat: json['lat'] ?? '',
+      lon: json['lon'] ?? '',
       status: OrderStatusExtension.fromString(json['status'] ?? 'AWAITING_ASSIGNMENT'),
       assignedDriver: json['assignedDriver'],
       createdBy: json['createdBy'],
@@ -141,6 +147,8 @@ class Order {
     'items': items.map((item) => item.toJson()).toList(),
     'amount': amount,
     'address': address,
+    'lat': lat,
+    'lon': lon,
     'status': status.value,
   };
 }

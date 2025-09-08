@@ -5,14 +5,13 @@ import 'package:toast/toast.dart';
 import '../../models/order.dart';
 import '../../services/api_service.dart';
 import '../core/contants.dart';
+import '../core/mapbox_placesearch_widget.dart';
 import 'orders_list.dart';
+import 'package:mapbox_search/mapbox_search.dart'; // Add this import
 
 // Provider for existing order items
 final existingOrderItemsProvider = FutureProvider.autoDispose<List<OrderItem>>((ref) async {
   final api = ref.watch(apiServiceProvider);
-
-  // This would be a new API endpoint to get existing order items
-  // For now, we'll simulate it with an empty list
   return [];
 });
 
@@ -29,12 +28,13 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   final _nameController = TextEditingController();
   final _addressController = TextEditingController();
   final _amountController = TextEditingController();
+  final _latController = TextEditingController();
+  final _lonController = TextEditingController();
   String _phoneNumber = "";
   bool _isPhoneValid = false;
 
   final List<OrderItem> _items = [];
   bool _loading = false;
-  //bool _searchingExistingItems = false;
   String? _selectedExistingItem;
 
   @override
@@ -80,19 +80,50 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                 textFieldController: _phoneController,
                 formatInput: true,
                 keyboardType: TextInputType.numberWithOptions(signed: true, decimal: false),
-                onSaved: (PhoneNumber number) {
-
-                },
+                onSaved: (PhoneNumber number) {},
               ),
               TextFormField(
                 controller: _nameController,
                 decoration: const InputDecoration(labelText: 'Nom Client'),
               ),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(labelText: 'Adresse Client'),
-                validator: (v) => v == null || v.isEmpty ? 'Addresse requise' : null,
-              ),
+
+              // Address Search Field with Mapbox
+              _buildAddressSearchField(),
+
+              // Latitude and Longitude Display
+              if (_latController.text.isNotEmpty && _lonController.text.isNotEmpty)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 16),
+                    const Text('Coordonnées:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _latController,
+                            decoration: const InputDecoration(labelText: 'Latitude'),
+                            readOnly: true,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _lonController,
+                            decoration: const InputDecoration(labelText: 'Longitude'),
+                            readOnly: true,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.clear),
+                          onPressed: _clearCoordinates,
+                          tooltip: 'Effacer les coordonnées',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+
               TextFormField(
                 controller: _amountController,
                 decoration: const InputDecoration(labelText: 'Montant à percevoir (XAF)'),
@@ -136,6 +167,10 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                     Toast.show("Prière d'insérer au moins un article à livrer",  duration: Toast.lengthShort, gravity: Toast.top);
                     return;
                   }
+                  if(_latController.text.isEmpty || _lonController.text.isEmpty){
+                    Toast.show("Veuillez sélectionner une adresse valide sur la carte", duration: Toast.lengthShort, gravity: Toast.top);
+                    return;
+                  }
 
                   setState(() => _loading = true);
                   try {
@@ -145,6 +180,8 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
                       'address': _addressController.text.trim(),
                       'amount': _amountController.text,
                       'items': _items.map((i) => i.toJson()).toList(),
+                      'lat': _latController.text,
+                      'lon': _lonController.text,
                     };
 
                     await api.createOrder(Order.fromJson(payload));
@@ -164,6 +201,41 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildAddressSearchField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MapBoxPlaceSearchWidget(
+          context: context,
+          hint: 'Rechercher une adresse',
+          onSelected: (place, _selectedLocation) {
+            setState(() {
+              _addressController.text = place.text!;
+              _latController.text = place.geometry?.coordinates.lat.toString() ?? '';
+              _lonController.text = place.geometry?.coordinates.long.toString() ?? '';
+            });
+          },
+          limit: 10,
+          country: 'CM',
+        ),
+        TextFormField(
+          controller: _addressController,
+          decoration: const InputDecoration(labelText: 'Adresse Client'),
+          validator: (v) => v == null || v.isEmpty ? 'Addresse requise' : null,
+          readOnly: true,
+        ),
+      ],
+    );
+  }
+
+  void _clearCoordinates() {
+    setState(() {
+      _addressController.clear();
+      _latController.clear();
+      _lonController.clear();
+    });
   }
 
   Future<OrderItem?> _showAddItemDialog(BuildContext context) async {
@@ -192,7 +264,7 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
             onPressed: () {
               final qty = int.tryParse(qtyCtrl.text) ?? 1;
               Navigator.pop(context, OrderItem(
-                id: "", // ID will be generated by the server
+                id: "",
                 brand: brandCtrl.text.trim(),
                 capacity: capCtrl.text.trim(),
                 quantity: qty,

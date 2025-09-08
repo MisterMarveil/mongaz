@@ -540,7 +540,7 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
                     : filteredDrivers;
 
                 return _showMapView
-                    ? _buildMapView(sortedDrivers, driverLocations)
+                    ? _buildMapView(widget.customerLocation!, sortedDrivers, driverLocations)
                     : _buildListView(sortedDrivers, driverLocations);
               },
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -555,9 +555,9 @@ class _DriverSelectionScreenState extends ConsumerState<DriverSelectionScreen> {
     );
   }
 
-  Widget _buildMapView(List<User> drivers, Map<String, latlong.LatLng> driverLocations) {
+  Widget _buildMapView(latlong.LatLng center, List<User> drivers, Map<String, latlong.LatLng> driverLocations) {
     final camera = CameraOptions(
-        center: Point(coordinates: Position(-98.0, 39.5)),
+        center: Point(coordinates: Position(center.latitude, center.longitude)),
         zoom: 2,
         bearing: 0,
         pitch: 0);
