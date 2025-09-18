@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl_phone_number_input/intl_phone_number_input.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:mapbox_search/mapbox_search.dart' as MapBoxSearch;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:toast/toast.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../../../routes.dart';
@@ -40,6 +41,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   final _resetCodeController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final FocusNode _phoneFocusNode = FocusNode();
+  final FocusNode _passwordFocusNode = FocusNode();
+  final FocusNode _resetCodeFocusNode = FocusNode();
+  final FocusNode _newPasswordFocusNode = FocusNode();
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -68,31 +73,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
   void initState() {
     super.initState();
     _setupAnimations();
-    () async {
-      await Permission.location
-          .onDeniedCallback(() {
-          Toast.show("Cette application a besoin de votre localisation pour bien fonctionner");
-          ()async{
-            await Permission.location.request();
-          };
-      })
-          .onGrantedCallback(() {
-        // Your code
-      })
-          .onPermanentlyDeniedCallback(() {
-        // Your code
-      })
-          .onRestrictedCallback(() {
-        // Your code
-      })
-          .onLimitedCallback(() {
-        // Your code
-      })
-          .onProvisionalCallback(() {
-        // Your code
-      })
-          .request();
-    };
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        FocusScope.of(context).requestFocus(_phoneFocusNode);
+      }
+    });
   }
 
   @override
@@ -103,6 +88,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
     _animationController.dispose();
+    _phoneFocusNode.dispose();
+    _passwordFocusNode.dispose();
+    _resetCodeFocusNode.dispose();
+    _newPasswordFocusNode.dispose();
 
     super.dispose();
   }
@@ -133,9 +122,38 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
         if(envVars['MAPBOX_TOKEN'] != null) {
           MapboxOptions.setAccessToken(envVars['MAPBOX_TOKEN']!);
           MapBoxSearch.MapBoxSearch.init(envVars['MAPBOX_TOKEN']!);
+
+          // Save token to shared preferences
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('MAPBOX_TOKEN', envVars['MAPBOX_TOKEN']!);
         }else{
           debugPrint("failed to retrieve mapbox token. object details: ${envVars.toString()}");
         }
+
+        await Permission.location
+              .onDeniedCallback(() {
+            Toast.show("Cette application a besoin de votre localisation pour bien fonctionner");
+            ()async{
+              await Permission.location.request();
+            };
+          })
+              .onGrantedCallback(() {
+            // Your code
+          })
+              .onPermanentlyDeniedCallback(() {
+            // Your code
+          })
+              .onRestrictedCallback(() {
+            // Your code
+          })
+              .onLimitedCallback(() {
+            // Your code
+          })
+              .onProvisionalCallback(() {
+            // Your code
+          }).request();
+
+
 
         final mercureService = ref.read(mercureServiceProvider);
         // Determine topics based on user role
@@ -234,6 +252,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           _resetStep = ResetPasswordStep.codeVerification;
           _loading = false;
         });
+        FocusScope.of(context).requestFocus(_resetCodeFocusNode);
         Toast.show(
             "Code envoyé par WhatsApp", duration: Toast.lengthLong,
             gravity: Toast.top);
@@ -266,6 +285,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
           _loading = false;
           //_isValidResetCode = true;
         });
+        FocusScope.of(context).requestFocus(_newPasswordFocusNode);
       } else {
         setState(() {
           _error = 'Code invalide';
@@ -320,6 +340,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
       _newPasswordController.clear();
       _confirmPasswordController.clear();
     });
+    FocusScope.of(context).requestFocus(_phoneFocusNode);
   }
 
   @override
@@ -516,6 +537,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
                 child: Column(
                   children: [
                     !_showPassword ? InternationalPhoneNumberInput(
+                      focusNode: _phoneFocusNode,
                       hintText: "Numéro téléphone",
                       errorMessage: "Numéro invalide",
                       initialValue: PhoneNumber(isoCode: 'CM'),
@@ -546,9 +568,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
                           setState(() {
                             _showPassword = true;
                           });
+                          // When phone number is validated, move focus to password
+                          FocusScope.of(context).requestFocus(_passwordFocusNode);
                         }
                       },
                     ) : TextFormField(
+                      focusNode: _passwordFocusNode,
                       controller: _passwordController,
                       obscureText: _obscurePassword,
                       decoration: InputDecoration(
@@ -691,6 +716,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
 
                   if (_resetStep == ResetPasswordStep.codeVerification)
                     TextFormField(
+                      focusNode: _resetCodeFocusNode,
+                      autofocus: true,
                       controller: _resetCodeController,
                       decoration: const InputDecoration(
                         labelText: "Code de vérification",
@@ -702,6 +729,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> with TickerProviderSt
 
                   if (_resetStep == ResetPasswordStep.newPassword) ...[
                     TextFormField(
+                      focusNode: _newPasswordFocusNode,
+                      autofocus: true,
                       controller: _newPasswordController,
                       obscureText: _obscureNewPassword,
                       decoration: InputDecoration(

@@ -39,7 +39,7 @@ class _SplashScreenState extends State<SplashScreen> {
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
     double screenHeigth = MediaQuery.of(context).size.height;
-    double logoHeight = screenHeigth * 0.3; // 30% of screen height
+    double logoHeight = screenHeigth * 0.25; // 30% of screen height
 
     return Scaffold(
       body: Center(

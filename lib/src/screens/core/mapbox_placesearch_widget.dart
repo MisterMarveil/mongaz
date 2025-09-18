@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,6 +8,7 @@ import 'package:mapbox_search/mapbox_search.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'package:mapbox_search/models/location.dart';
 
+/// Extension to retrieve current user puck position
 extension PuckPosition on StyleManager {
   Future<LatLng> getPuckPosition() async {
     Layer? layer;
@@ -22,21 +24,25 @@ extension PuckPosition on StyleManager {
 }
 
 class MapBoxPlaceSearchWidget extends StatefulWidget {
-  //final String apiKey;
   final BuildContext context;
   final String hint;
   final Function(MapBoxPlace, LatLng?) onSelected;
+  final Function(MapBoxPlace)? onSuggestionTap;
   final int limit;
   final String country;
+  final bool showMap;
+  final bool moveMarker;
 
   const MapBoxPlaceSearchWidget({
     Key? key,
-    //required this.apiKey,
     required this.context,
     this.hint = 'Rechercher une adresse',
     required this.onSelected,
+    this.onSuggestionTap,
     this.limit = 5,
     this.country = 'CM',
+    this.showMap = false,
+    this.moveMarker = true,
   }) : super(key: key);
 
   @override
@@ -48,13 +54,18 @@ class _MapBoxPlaceSearchWidgetState extends State<MapBoxPlaceSearchWidget> {
   final FocusNode _searchFocusNode = FocusNode();
   List<MapBoxPlace> _searchResults = [];
   bool _isSearching = false;
-  bool _showResults = false;
   bool _showMap = false;
+  Point _defaultPoint = Point(coordinates: Position(3.86077, 11.520531)); // Default to Yaoundé, Cameroon
   GeoCoding? _geoCodingService;
+  final Map<String, List<MapBoxPlace>> _placesCache = {};
+  final Map<String, String> _reverseGeocodeCache = {};
+  Timer? _reverseDebounce;
+
+  // Debouncer
+  Timer? _debounce;
 
   // Map-related variables
   MapboxMap? _mapboxMap;
-  //MapboxMapController? _mapController;
   LatLng? _selectedLocation;
   PointAnnotation? _marker;
   PointAnnotationManager? _pointAnnotationManager;
@@ -64,135 +75,183 @@ class _MapBoxPlaceSearchWidgetState extends State<MapBoxPlaceSearchWidget> {
     super.initState();
     _initMapBox();
     _searchController.addListener(_onSearchChanged);
-    _searchFocusNode.addListener(_onFocusChanged);
+    _showMap = widget.showMap;
+
+    // If map should be shown initially, focus on the search field
+    if (_showMap) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        FocusScope.of(widget.context).requestFocus(_searchFocusNode);
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant MapBoxPlaceSearchWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.showMap != oldWidget.showMap) {
+      setState(() {
+        _showMap = widget.showMap;
+      });
+    }
   }
 
   @override
   void dispose() {
-    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
-    _searchFocusNode.removeListener(_onFocusChanged);
     _searchFocusNode.dispose();
     _mapboxMap?.dispose();
+    _debounce?.cancel();
+    _reverseDebounce?.cancel();
     super.dispose();
   }
 
   void _initMapBox() {
-    //MapBoxSearch.init(widget.apiKey);
     _geoCodingService = GeoCoding(
-      //apiKey: widget.apiKey,
       country: widget.country,
       limit: widget.limit,
     );
   }
 
-  void _onFocusChanged() {
-    setState(() {
-      _showResults = _searchFocusNode.hasFocus && _searchResults.isNotEmpty;
-    });
-  }
-
   void _onSearchChanged() {
     final query = _searchController.text.trim();
     if (query.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _showResults = false;
-        _isSearching = false;
-      });
+      setState(() => _searchResults = []);
       return;
     }
-
     if (query.length < 3) return;
 
-    _performSearch(query);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _performSearch(query);
+    });
   }
 
   void _performSearch(String query) async {
-    setState(() {
-      _isSearching = true;
-    });
+    if (_placesCache.containsKey(query)) {
+      // Return cached results
+      setState(() {
+        _searchResults = _placesCache[query]!;
+      });
+      _showBottomSuggestions(_searchResults);
+      return;
+    }
 
+    setState(() => _isSearching = true);
     try {
       final result = await _geoCodingService!.getPlaces(
         query,
-        proximity: Proximity.LatLong(
-          lat: 3.8480, // Default center for Cameroon
-          long: 11.5021,
-        ),
+        proximity: Proximity.LatLong(lat: 3.8480, long: 11.5021),
       );
 
-      result.fold(
-            (success) {
-          setState(() {
-            _searchResults = success;
-            _showResults = _searchFocusNode.hasFocus;
-            _isSearching = false;
-          });
-        },
-            (failure) {
-          setState(() {
-            _searchResults = [];
-            _showResults = false;
-            _isSearching = false;
-          });
-          print('Search failed: $failure');
-        },
-      );
-    } catch (e) {
+      result.fold((success) {
+        _placesCache[query] = success; // Cache results
+        setState(() {
+          _searchResults = success;
+          _isSearching = false;
+        });
+        if (success.isNotEmpty) _showBottomSuggestions(success);
+      }, (failure) {
+        setState(() {
+          _searchResults = [];
+          _isSearching = false;
+        });
+      });
+    } catch (_) {
       setState(() {
         _searchResults = [];
-        _showResults = false;
         _isSearching = false;
       });
-      print('Search error: $e');
     }
   }
 
-  void _onPlaceSelected(MapBoxPlace place) {
-    _searchController.text = place.text!;
-    _searchFocusNode.unfocus();
+  void _showBottomSuggestions(List<MapBoxPlace> places) {
+    if (!mounted) return;
 
-    // Extract coordinates from the selected place
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => ListView.separated(
+        padding: const EdgeInsets.all(8),
+        itemCount: places.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (ctx, index) {
+          final place = places[index];
+          return ListTile(
+            leading: const Icon(Icons.location_on, color: Colors.indigo),
+            title: Text(place.text ?? 'Inconnu'),
+            subtitle: Text(
+              place.placeName ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () {
+              Navigator.pop(ctx);
+              if (widget.onSuggestionTap != null) {
+                widget.onSuggestionTap!(place);
+              }
+              _onPlaceSelected(place);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  void _onPlaceSelected(MapBoxPlace place) {
+    _searchController.text = place.text ?? '';
     if (place.geometry?.coordinates != null) {
-      final double lng = place.geometry!.coordinates.long;
-      final double lat = place.geometry!.coordinates.lat;
+      final lat = place.geometry!.coordinates.lat;
+      final lng = place.geometry!.coordinates.long;
       _selectedLocation = LatLng(lat, lng);
 
-      // Update map to show the selected location
-      _moveCameraToLocation(_selectedLocation!);
-      _addOrUpdateMarker(_selectedLocation!);
-
-      setState(() {
-        _showResults = false;
-        _showMap = true;
-      });
+      if (widget.moveMarker) {
+        _moveCameraToLocation(_selectedLocation!);
+        _addOrUpdateMarker(_selectedLocation!);
+      }
 
       widget.onSelected(place, _selectedLocation);
     } else {
-      setState(() {
-        _showResults = false;
-      });
       widget.onSelected(place, null);
     }
   }
 
+
+
   Future<void> _onMapCreated(MapboxMap controller) async {
     _mapboxMap = controller;
-    _pointAnnotationManager = await _mapboxMap!.annotations.createPointAnnotationManager();
+    _pointAnnotationManager =
+    await _mapboxMap!.annotations.createPointAnnotationManager();
+    _mapboxMap!.gestures.updateSettings(
+      GesturesSettings(
+        pinchToZoomEnabled: true,
+        pinchToZoomDecelerationEnabled: true,
+        doubleTapToZoomInEnabled: true,
+        doubleTouchToZoomOutEnabled: true,
+        scrollEnabled: true,
+        rotateEnabled: false,
+        pitchEnabled: true,
+        quickZoomEnabled: true,
+      ),
+    );
 
-    if(_selectedLocation == null){
-      _mapboxMap?.location.updateSettings(LocationComponentSettings(enabled: true));
-      _selectedLocation = await _mapboxMap?.style.getPuckPosition();
+    var tapInteraction = TapInteraction.onMap((context) {
+      debugPrint("Tap on map itself at: ${context.point.coordinates.lat}, ${context.point.coordinates.lng}");
+      _onMapClick(context);
+    });
+    // Add tap listener for the map
+    _mapboxMap?.addInteraction(tapInteraction);
 
-      if (_selectedLocation != null) {
-        print('Location: ${_selectedLocation}');
-      }else{
-        debugPrint("location is null");
+    if (_selectedLocation == null) {
+      _mapboxMap?.location.updateSettings(
+        LocationComponentSettings(enabled: true),
+      );
+      try {
+        _selectedLocation = await _mapboxMap?.style.getPuckPosition();
+      } catch (e) {
+        // Fallback to default location if puck position is not available
+        _selectedLocation = LatLng(_defaultPoint.coordinates.lat.toDouble(), _defaultPoint.coordinates.lng.toDouble());
       }
     }
 
-    // If we already have a selected location, move camera to it
     if (_selectedLocation != null) {
       _moveCameraToLocation(_selectedLocation!);
       _addOrUpdateMarker(_selectedLocation!);
@@ -201,105 +260,120 @@ class _MapBoxPlaceSearchWidgetState extends State<MapBoxPlaceSearchWidget> {
 
   void _moveCameraToLocation(LatLng location) {
     _mapboxMap?.easeTo(
-        CameraOptions(
-            center: Point(
-                coordinates: Position(
-                  location.latitude,
-                  location.longitude,
-                )),
-            zoom: 17,
-            bearing: 180,
-            pitch: 30),
-        MapAnimationOptions(duration: 2000, startDelay: 0));
-  }
-
-  void _addOrUpdateMarker(LatLng location) async {
-    if(_mapboxMap == null || _pointAnnotationManager == null) return;
-
-    if(_marker != null)
-      _pointAnnotationManager!.delete(_marker!);
-
-    final ByteData bytes =  await rootBundle.load('assets/images/pos-marker.png');
-
-    _pointAnnotationManager!.create(PointAnnotationOptions(
-      geometry: Point(
-          coordinates: Position(
-            location.latitude,
-            location.longitude,
-          ),
+      CameraOptions(
+        center: Point(
+          coordinates: Position(location.latitude, location.longitude),
+        ),
+        zoom: 17,
       ),
-      image: bytes.buffer.asUint8List(),
-      textField:  "client",
-      isDraggable: true,
-    )).then((value) => _marker = value);
-
-    _pointAnnotationManager!.dragEvents(
-      onEnd: (annotation) {
-        _selectedLocation = LatLng(annotation.geometry.coordinates.lat.toDouble(), annotation.geometry.coordinates.lng.toDouble());
-
-        print("point lat: ${annotation.geometry.coordinates.lat} long: ${annotation.geometry.coordinates.lng} drag end");
-      },
+      MapAnimationOptions(duration: 1500),
     );
   }
 
+  void _addOrUpdateMarker(LatLng location) async {
+    if (_mapboxMap == null || _pointAnnotationManager == null) return;
+    if (_marker != null) _pointAnnotationManager!.delete(_marker!);
 
-  void _onMapClick(Point point, LatLng latLng) {
-    // Update selected location when user clicks on the map
-    _addOrUpdateMarker(latLng);
+    final ByteData bytes =
+    await rootBundle.load('assets/images/pos-marker.png');
+
+    _marker = await _pointAnnotationManager!.create(
+      PointAnnotationOptions(
+        iconSize: 0.1,
+        geometry: Point(
+          coordinates: Position(location.latitude, location.longitude),
+        ),
+        image: bytes.buffer.asUint8List(),
+        isDraggable: true,
+      ),
+    );
+
+    // Drag event → update + reverse geocode
+    _pointAnnotationManager!.dragEvents(onEnd: (annotation) {
+      _selectedLocation = LatLng(
+        annotation.geometry.coordinates.lat.toDouble(),
+        annotation.geometry.coordinates.lng.toDouble(),
+      );
+      _reverseGeocode(_selectedLocation!);
+    });
   }
 
-  void _reverseGeocode(LatLng latLng) async {
-    try {
-      final result = await _geoCodingService!.getAddress((
-      lat: latLng.latitude,
-      long: latLng.longitude,
-      ));
+  void _onMapClick(MapContentGestureContext context) {
+    final latLng = LatLng(
+      context.point.coordinates.lat.toDouble(),
+      context.point.coordinates.lng.toDouble(),
+    );
 
-      result.fold(
-            (success) {
+    _selectedLocation = latLng;
+
+    _addOrUpdateMarker(latLng);
+    _reverseGeocode(latLng);
+  }
+
+  void _reverseGeocode(LatLng latLng) {
+    final key = "${latLng.latitude},${latLng.longitude}";
+    if (_reverseGeocodeCache.containsKey(key)) {
+      _searchController.text = _reverseGeocodeCache[key]!;
+      widget.onSelected(
+        MapBoxPlace(
+          id: 'reverse_geocode',
+          text: _reverseGeocodeCache[key]!,
+          placeName: _reverseGeocodeCache[key]!,
+          geometry:  Geometry.fromJson(
+              Point(
+                coordinates: Position(
+                  latLng.longitude,
+                  latLng.latitude,
+                ),
+              ).toJson(),
+          ),
+        ),
+        latLng,
+      );
+      return;
+    }
+
+    // Debounce 1 second
+    _reverseDebounce?.cancel();
+    _reverseDebounce = Timer(const Duration(seconds: 2), () async {
+      try {
+        final result = await _geoCodingService!.getAddress((
+        lat: latLng.latitude,
+        long: latLng.longitude,
+        ));
+
+        result.fold((success) {
           if (success.isNotEmpty) {
             final place = success.first;
+            _reverseGeocodeCache[key] = place.placeName ?? "Position choisie";
+
             setState(() {
-              _searchController.text = place.placeName ?? 'Selected Location';
+              _searchController.text = place.placeName ?? 'Position choisie';
             });
 
-            // Create a minimal MapBoxPlace object with the text
-            final minimalPlace = MapBoxPlace(
-              id: 'reverse_geocode',
-              text: place.placeName ?? 'Selected Location',
-              placeName: place.placeName,
-              geometry: place.geometry,
+            widget.onSelected(
+              MapBoxPlace(
+                id: 'reverse_geocode',
+                text: place.placeName ?? 'Position choisie',
+                placeName: place.placeName,
+                geometry: place.geometry,
+              ),
+              latLng,
             );
-
-            widget.onSelected(minimalPlace, latLng);
           }
-        },
-            (failure) {
-          print('Reverse geocoding failed: $failure');
-          setState(() {
-            _searchController.text = 'Location: ${latLng.latitude.toStringAsFixed(4)}, ${latLng.longitude.toStringAsFixed(4)}';
-          });
-        },
-      );
-    } catch (e) {
-      print('Reverse geocoding error: $e');
-      setState(() {
-        _searchController.text = 'Location: ${latLng.latitude.toStringAsFixed(4)}, ${latLng.longitude.toStringAsFixed(4)}';
-      });
-    }
+        }, (_) {});
+      } catch (_) {}
+    });
   }
 
   void _toggleMapVisibility() {
-    setState(() {
-      _showMap = !_showMap;
-    });
+    setState(() => _showMap = !_showMap);
   }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Search bar
         TextField(
           controller: _searchController,
           focusNode: _searchFocusNode,
@@ -321,7 +395,6 @@ class _MapBoxPlaceSearchWidgetState extends State<MapBoxPlaceSearchWidget> {
                       _searchController.clear();
                       setState(() {
                         _searchResults = [];
-                        _showResults = false;
                         _selectedLocation = null;
                         _marker = null;
                       });
@@ -330,56 +403,12 @@ class _MapBoxPlaceSearchWidgetState extends State<MapBoxPlaceSearchWidget> {
                 IconButton(
                   icon: Icon(_showMap ? Icons.map : Icons.map_outlined),
                   onPressed: _toggleMapVisibility,
-                  tooltip: _showMap ? 'Hide map' : 'Show map',
                 ),
               ],
             ),
           ),
         ),
 
-        // Search results
-        if (_showResults)
-          Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            constraints: const BoxConstraints(maxHeight: 200),
-            child: ListView.builder(
-              padding: EdgeInsets.zero,
-              shrinkWrap: true,
-              itemCount: _searchResults.length,
-              itemBuilder: (context, index) {
-                final place = _searchResults[index];
-                return ListTile(
-                  leading: const Icon(Icons.location_on, size: 20),
-                  title: Text(
-                    place.text ?? 'Unknown',
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                  subtitle: place.placeName != null
-                      ? Text(
-                    place.placeName!,
-                    style: const TextStyle(fontSize: 12),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  )
-                      : null,
-                  onTap: () => _onPlaceSelected(place),
-                  dense: true,
-                );
-              },
-            ),
-          ),
-
-        // Interactive map
         if (_showMap)
           Container(
             height: 300,
@@ -391,23 +420,27 @@ class _MapBoxPlaceSearchWidgetState extends State<MapBoxPlaceSearchWidget> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: MapWidget(
-                key: ValueKey("mapWidget"),
+                cameraOptions: CameraOptions(
+                  center: Point(
+                    coordinates: Position(
+                      _selectedLocation?.latitude ?? _defaultPoint.coordinates.lat,
+                      _selectedLocation?.longitude ?? _defaultPoint.coordinates.lng,
+                    ),
+                  ),
+                  zoom: 14.0,
+                ),
+                key: const ValueKey("mapWidget"),
                 onMapCreated: _onMapCreated,
               ),
             ),
           ),
 
-        // Instructions
         if (_showMap)
-          Padding(
-            padding: const EdgeInsets.only(top: 8.0),
+          const Padding(
+            padding: EdgeInsets.only(top: 8.0),
             child: Text(
-              'Tap on the map to select a precise location',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-                fontStyle: FontStyle.italic,
-              ),
+              'Touchez ou déplacez le marker pour affiner la position',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ),
       ],

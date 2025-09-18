@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl_phone_number_input/intl_phone_number_input.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:toast/toast.dart';
 import '../../models/order.dart';
 import '../../services/api_service.dart';
 import '../core/contants.dart';
-import '../core/mapbox_placesearch_widget.dart';
-import 'orders_list.dart';
-import 'package:mapbox_search/mapbox_search.dart'; // Add this import
+import '../core/map_selection_screen.dart';
 
 // Provider for existing order items
 final existingOrderItemsProvider = FutureProvider.autoDispose<List<OrderItem>>((ref) async {
@@ -36,6 +35,31 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
   final List<OrderItem> _items = [];
   bool _loading = false;
   String? _selectedExistingItem;
+
+  // Focus node for address field
+  //final FocusNode _addressFocusNode = FocusNode();
+  //bool _showMap = false;
+
+  @override
+  void initState() {
+    super.initState();
+    //_addressFocusNode.addListener(_onAddressFocusChange);
+  }
+
+  @override
+  void dispose() {
+   // _addressFocusNode.removeListener(_onAddressFocusChange);
+   // _addressFocusNode.dispose();
+    super.dispose();
+  }
+
+  /*void _onAddressFocusChange() {
+    if (_addressFocusNode.hasFocus) {
+      setState(() {
+        _showMap = true;
+      });
+    }
+  }*/
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +113,39 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
 
               // Address Search Field with Mapbox
               _buildAddressSearchField(),
+
+              // Show map when address field is focused
+              /*if (_showMap)
+                Container(
+                  height: 500,
+                  margin: const EdgeInsets.symmetric(vertical: 16),
+                  child: MapBoxPlaceSearchWidget(
+                    context: context,
+                    hint: 'Rechercher une adresse',
+                    onSelected: (place, _selectedLocation) {
+                      setState(() {
+                        _addressController.text = place.text!;
+                        _latController.text = place.geometry?.coordinates.lat.toString() ?? '';
+                        _lonController.text = place.geometry?.coordinates.long.toString() ?? '';
+                        _showMap = false; // Hide map after selection
+                        _addressFocusNode.unfocus(); // Remove focus
+                      });
+                    },
+                    onSuggestionTap: (place) {
+                      // Show a snackbar with the selected suggestion
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Adresse sélectionnée: ${place.text}'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                    limit: 5, // Reduced limit to minimize API calls
+                    country: 'CM',
+                    showMap: true, // Ensure map is shown
+                    moveMarker: true, // Enable marker movement
+                  ),
+                ),*/
 
               // Latitude and Longitude Display
               if (_latController.text.isNotEmpty && _lonController.text.isNotEmpty)
@@ -207,27 +264,53 @@ class _OrderCreateScreenState extends ConsumerState<OrderCreateScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        MapBoxPlaceSearchWidget(
-          context: context,
-          hint: 'Rechercher une adresse',
-          onSelected: (place, _selectedLocation) {
-            setState(() {
-              _addressController.text = place.text!;
-              _latController.text = place.geometry?.coordinates.lat.toString() ?? '';
-              _lonController.text = place.geometry?.coordinates.long.toString() ?? '';
-            });
-          },
-          limit: 10,
-          country: 'CM',
-        ),
         TextFormField(
           controller: _addressController,
-          decoration: const InputDecoration(labelText: 'Adresse Client'),
+          readOnly: true, // Make it read-only since selection happens on the map screen
+          decoration: InputDecoration(
+            labelText: 'Adresse Client',
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.map),
+              onPressed: _openMapSelection,
+            ),
+          ),
           validator: (v) => v == null || v.isEmpty ? 'Addresse requise' : null,
-          readOnly: true,
         ),
       ],
     );
+  }
+
+  void _openMapSelection() async {
+    LatLng? initialLocation;
+    try {
+      if (_latController.text.isNotEmpty && _lonController.text.isNotEmpty) {
+        initialLocation = LatLng(
+          double.parse(_latController.text),
+          double.parse(_lonController.text),
+        );
+      }
+    } catch (e) {
+      // If coordinates are invalid, just proceed without initial location
+      print('Error parsing coordinates: $e');
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MapSelectionScreen(
+          initialLocation: initialLocation,
+          initialAddress: _addressController.text.isEmpty ? null : _addressController.text,
+        ),
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        _addressController.text = result['address']?.toString() ?? 'Adresse non spécifiée';
+        _latController.text = result['lat']?.toString() ?? '';
+        _lonController.text = result['lon']?.toString() ?? '';
+      });
+    }
   }
 
   void _clearCoordinates() {
